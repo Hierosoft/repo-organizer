@@ -3,181 +3,133 @@ from __future__ import print_function
 import os
 import sys
 import json
-import logging
-from os.path import expanduser, exists, join
-import requests  # Assuming the `requests` library is installed
+import logging2 as logging
+from os.path import expanduser
 
-# Global constant
+# Conditional imports for Python 2 and 3 compatibility
+if sys.version_info.major >= 3:
+    import urllib.request as request
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import urlparse, parse_qs, quote as urllib_quote
+    from urllib.parse import quote_plus as urllib_quote_plus, urlencode
+else:
+    import urllib2 as urllib
+    request = urllib
+    from urllib2 import HTTPError, URLError
+    from urlparse import urlparse, parse_qs
+    from urllib import quote as urllib_quote, quote_plus as urllib_quote_plus, urlencode
+    from HTMLParser import HTMLParser  # noqa: F401
+
 ENABLE_SSH = True
 
-# Ensure configuration directory exists
-config_dir = expanduser("~/.config/repo-organizer")
-if not os.path.exists(config_dir):
-    os.makedirs(config_dir)
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
 
 class RepoCollection:
+    """Handles operations related to GitHub repositories."""
+
     def __init__(self):
         self.repos = None
         self.name = None
-        self.is_org = None
+        self.is_org = False
 
     def set_name(self, name, is_org):
-        """Sets the name and type (organization or user)."""
+        """Sets the name and type of the collection."""
         self.name = name
         self.is_org = is_org
 
     def load_repos(self, refresh=False):
-        """Loads repositories from GitHub or from cache."""
-        repo_cache = join(config_dir, self.name, 'repos.json')
+        """Loads the repositories for the given GitHub organization or user."""
+        repo_cache = os.path.join(
+            expanduser("~"), ".config", "repo-organizer", self.name, "repos.json"
+        )
         downloaded = False
 
         if not refresh:
             if os.path.exists(repo_cache):
-                with open(repo_cache, 'r') as cache_file:
+                with open(repo_cache, "r") as cache_file:
                     self.repos = json.load(cache_file)
-                    return
-            else:
-                logging.warning("No %s, so downloading from GitHub", repo_cache)
+                logging.info("Loaded repos from cache: %s", repo_cache)
+                return
 
-        # Construct URL based on whether it's an organization or user
-        url = 'https://api.github.com/%s/%s/repos' % (
-            'orgs' if self.is_org else 'users', self.name
+            url = "https://api.github.com/{}/{}".format(
+                "orgs" if self.is_org else "users", self.name
+            )
+            logging.warning("No %s, so downloading %s", repo_cache, url)
+
+        # Download repositories from GitHub
+        url = "https://api.github.com/{}/{}/repos".format(
+            "orgs" if self.is_org else "users", self.name
         )
-        response = requests.get(url)
-
-        if response.status_code == 200:
-            self.repos = response.json()
+        try:
+            response = request.urlopen(url)
+            self.repos = json.loads(response.read())
             downloaded = True
-        else:
-            logging.error("Failed to fetch repositories from GitHub: %s", url)
+        except (HTTPError, URLError) as e:
+            logging.error("Failed to fetch repositories: %s", e)
             return
 
+        # Cache the results if downloaded
         if downloaded:
-            # Save downloaded data to cache
-            if not os.path.exists(join(config_dir, self.name)):
-                os.makedirs(join(config_dir, self.name))
-
-            with open(repo_cache, 'w') as cache_file:
+            os.makedirs(os.path.dirname(repo_cache), exist_ok=True)
+            with open(repo_cache, "w") as cache_file:
                 json.dump(self.repos, cache_file)
+            logging.info("Cached repos to %s", repo_cache)
 
-    def log_error(self, message):
-        """Appends errors to the error log."""
-        with open(expanduser("~/.config/repo-organizer/errors.log"), 'a') as error_log:
-            error_log.write(message + '\n')
-
-    def log_success(self, message):
-        """Appends success messages to the success log."""
-        with open(expanduser("~/.config/repo-organizer/repo-organizer.log"), 'a') as success_log:
-            success_log.write(message + '\n')
-
-    def load_repos(self, repos_path):
-        """Clones or updates repositories."""
-        for repo in self.repos:
-            repo_name = repo['name']
-            if ENABLE_SSH:
-                clone_url = "git@github.com:%s/%s.git" % (self.name, repo_name)
-            else:
-                clone_url = repo['clone_url']
-
-            repo_dir = join(repos_path, 'mirror-' + self.name, repo_name)
-
-            if not exists(repo_dir):
-                cmd = "git clone %s %s" % (clone_url, repo_dir)
-                result = os.system(cmd)
-                if result != 0:
-                    self.log_error("Failed to clone %s" % clone_url)
-                else:
-                    self.log_success(cmd)
-            else:
-                cmd = "cd %s && git pull" % repo_dir
-                result = os.system(cmd)
-                if result != 0:
-                    self.log_error("Failed to pull in %s" % repo_dir)
-                else:
-                    self.log_success(cmd)
-
-def gather_repos(name, is_org):
-    """Find the repository path and gather repositories for the given name."""
-    repos_path = None
-
-    # Try to find repos_path
-    try_paths = [r"C:\Projects", "~/git", "~/GitHub", "~/Documents/GitHub"]
-    for path in try_paths:
-        path = expanduser(path)
-        if exists(join(path, "mirror-" + name)):
-            repos_path = path
-            break
-
-    if not repos_path:
-        logging.error("No repos dir was found, so for safety nothing was done. "
-                      "Create mirror-%s folder in one of the following first: %s",
-                      name, try_paths)
-        return 1
-
-    org = RepoCollection()
-    org.set_name(name, is_org)
-    org.load_repos(repos_path)
-
-    return 0
 
 def load_settings():
-    """Load settings from the settings.json file."""
-    settings_file = join(config_dir, "settings.json")
-    if not exists(settings_file):
-        logging.error("Missing settings file: %s", settings_file)
-        return None
+    """Loads the settings from ~/.config/repo-organizer/settings.json."""
+    config_dir = os.path.join(expanduser("~"), ".config", "repo-organizer")
+    settings_path = os.path.join(config_dir, "settings.json")
 
-    with open(settings_file, 'r') as file:
-        try:
-            settings = json.load(file)
-        except ValueError as e:
-            logging.error("Error parsing settings file: %s", e)
-            return None
+    if not os.path.exists(settings_path):
+        logging.error("Settings file not found: %s", settings_path)
+        sys.exit(1)
 
-    # Validate the structure of the settings file
-    sources = settings.get('sources')
-    if sources is None:
-        logging.error("'sources' key is missing in settings file.")
-        return None
+    with open(settings_path, "r") as settings_file:
+        settings = json.load(settings_file)
 
-    github = sources.get('github')
+    # Validate structure
+    if "sources" not in settings:
+        logging.error("Missing 'sources' key in settings.")
+        sys.exit(1)
+
+    github = settings["sources"].get("github")
     if github is None:
-        logging.error("'github' key is missing under 'sources' in settings file.")
-        return None
-
-    orgs = github.get('orgs')
-    users = github.get('users')
-
-    if not orgs and not users:
-        logging.error("Both 'orgs' and 'users' are missing or invalid in settings file.")
-        return None
+        logging.error("Missing 'github' key in 'sources'.")
+        sys.exit(1)
 
     return settings
 
+
+def gather_repos(org_name, is_org):
+    """Handles repository operations for the given organization or user."""
+    org = RepoCollection()
+    org.set_name(org_name, is_org)
+    org.load_repos(refresh=False)
+
+
 def main():
-    """Main function."""
+    """Main entry point for the script."""
+    config_dir = os.path.join(expanduser("~"), ".config", "repo-organizer")
     settings = load_settings()
-    if settings is None:
+
+    github = settings["sources"]["github"]
+    orgs = github.get("orgs")
+    users = github.get("users")
+
+    if not orgs and not users:
+        logging.error("No 'orgs' or 'users' specified in settings.")
         return 1
 
-    github = settings['sources']['github']
-
-    # Process organizations
-    orgs = github.get('orgs')
-    if orgs:
+    if isinstance(orgs, list):
         for org_name in orgs:
-            gather_repos(org_name, True)
+            gather_repos(org_name, is_org=True)
 
-    # Process users
-    users = github.get('users')
-    if users:
+    if isinstance(users, list):
         for user_name in users:
-            gather_repos(user_name, False)
+            gather_repos(user_name, is_org=False)
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
