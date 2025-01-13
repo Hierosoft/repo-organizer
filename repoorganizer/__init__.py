@@ -46,6 +46,7 @@ class RepoCollection:
         self.name = None
         self.is_org = False
         self.json_urls = []
+        self.token = None
 
     def set_name(self, name, is_org):
         """Sets the name and type of the collection."""
@@ -178,6 +179,13 @@ def main():
             ' "sources":{"github"... in settings.')
         return 1
 
+    sources = settings.get('sources')
+    github = None
+    if sources:
+        github = sources.get('github')
+    if github:
+        token = github.get('token')
+
     counts = {'orgs': 0, 'users': 0}
     all_json_urls = []
     collections = []
@@ -206,12 +214,15 @@ def main():
     logging.info("Processed {} orgs {} users"
                  .format(counts['orgs'], counts['users']))
     print()
+    token_msg = ""
+    if token:
+        token_msg = " Your token in settings was used."
     msg = (
-        "Warning: Private repos will not be shown unless you manually replace"
-        " cached json files in {} with ones from (The list at this URL will"
-        " still only be complete if your browser is logged in as an owner,"
-        " collaborator, or team member with permission to read desired repos):"
-        .format(repr(RepoCollection.cache_dir()))
+        "Private repos will not be shown unless you use"
+        " a token.{} See {} to see what was listed. The token must"
+        " be for a collaborator or team member with permission"
+        " to list and clone desired repos:"
+        .format(token_msg, repr(RepoCollection.cache_dir()))
     )
     # logging.warning(msg)
     print(msg)
