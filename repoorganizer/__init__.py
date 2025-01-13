@@ -40,6 +40,7 @@ class RepoCollection:
     """Handles operations related to GitHub repositories."""
 
     site = "github"
+    user = None  # cannot use self.name for this if is_org!
 
     def __init__(self):
         self.repos = None
@@ -47,11 +48,17 @@ class RepoCollection:
         self.is_org = False
         self.json_urls = []
         self.token = None
+        self.response_type = list
+        self.full_response = None
 
-    def set_name(self, name, is_org):
-        """Sets the name and type of the collection."""
+    def set_name(self, name, is_org, token=None):
+        """Set the name and type of the collection."""
         self.name = name
         self.is_org = is_org
+        if token:
+            self.token = token
+        if not is_org:
+            RepoCollection.user = name
 
     @classmethod
     def cache_dir(cls):
@@ -60,17 +67,42 @@ class RepoCollection:
     def backup_dir(self):
         return os.path.join(backup_dir, self.site)
 
+    def _get_headers(self):
+        """Return headers for GitHub API requests,
+        including authentication if available.
+        """
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        if self.token:
+            # headers["Authorization"] = "token {}".format(self.token)
+            # ^ Doesn't work. See
+            #   <https://github.com/orgs/community/discussions/24382>
+            headers["Authorization"] = "Bearer {}".format(self.token)
+        return headers
+
+    def _get_url(self):
+        """Construct the correct API URL based on user or organization type."""
+        if not self.token:
+            logging.error(
+                "User not set, so auth token is not tested in this case!")
+            url = "https://api.github.com/{}/{}/repos".format(
+                "orgs" if self.is_org else "users", self.name
+            )
+            return url
+
+        if self.is_org and not RepoCollection.user:
+            return "https://api.github.com/orgs/{}/repos".format(self.name)
+        self.response_type = dict
+        return "https://api.github.com/search/repositories?q=user:{}".format(
+            RepoCollection.user
+        )
 
     def _load_repos(self, refresh=False):
-        """Loads the repositories for the given GitHub organization or user."""
+        """Load the repositories for the given GitHub organization or user."""
         repo_cache = os.path.join(
             RepoCollection.cache_dir(), self.name, "repos.json"
         )
         downloaded = False
-
-        url = "https://api.github.com/{}/{}/repos".format(
-            "orgs" if self.is_org else "users", self.name
-        )
+        url = self._get_url()
         if url not in self.json_urls:
             self.json_urls.append(url)
 
@@ -84,8 +116,23 @@ class RepoCollection:
             logging.warning("No %s, so downloading from %s" % (repo_cache, url))
 
         try:
-            response = request.urlopen(url)
+            # response = request.urlopen(url)
+            # self.repos = json.loads(response.read())
+            request_obj = request.Request(url, headers=self._get_headers())
+            response = request.urlopen(request_obj)
             self.repos = json.loads(response.read())
+            self.full_response = self.repos
+            if isinstance(self.full_response, dict):
+                # Example:
+                # {
+                #   "total_count": 31,
+                #   "incomplete_results": false,
+                #   "items": [
+                self.repos = self.full_response.get('items')
+            elif self.response_type is dict:
+                logging.warning("Got {} but expected dict".format(type(self.full_response)))
+            # with request.urlopen(req) as response:
+            #     self.repos = json.loads(response.read().decode())
             downloaded = True
         except (HTTPError, URLError) as e:
             logging.error("Failed to fetch repositories: %s" % e)
@@ -155,10 +202,10 @@ def load_settings():
     return settings
 
 
-def gather_repos(org_name, is_org):
+def gather_repos(org_name, is_org, token=None):
     """Handles repository operations for the given organization or user."""
     org = RepoCollection()
-    org.set_name(org_name, is_org)
+    org.set_name(org_name, is_org, token=token)
     logging.info("Collecting {} {} repo(s)"
                  .format(org_name, "org" if is_org else "user"))
     org.clone_repos(refresh=False)
@@ -187,29 +234,31 @@ def main():
         token = github.get('token')
 
     counts = {'orgs': 0, 'users': 0}
-    all_json_urls = []
     collections = []
-    if orgs is None:
-        logging.info("orgs is None")
-    elif isinstance(orgs, list):
-        for org_name in orgs:
-            collection = gather_repos(org_name, is_org=True)
-            collections.append(collection)
-            counts['orgs'] += 1
-    else:
-        logging.error("orgs is a {} (expected list). Check {}"
-                      .format(type(orgs), repr(settings_path)))
 
     if users is None:
         logging.info("users is None")
     elif isinstance(users, list):
         for user_name in users:
-            collection = gather_repos(user_name, is_org=False)
+            collection = gather_repos(user_name, is_org=False, token=token)
             collections.append(collection)
             counts['users'] += 1
     else:
         logging.error("users is a {} (expected list). Check {}"
                       .format(type(users), repr(settings_path)))
+    if not token:
+        if orgs is None:
+            logging.info("orgs is None")
+        elif isinstance(orgs, list):
+            for org_name in orgs:
+                collection = gather_repos(org_name, is_org=True, token=token)
+                collections.append(collection)
+                counts['orgs'] += 1
+        else:
+            logging.error("orgs is a {} (expected list). Check {}"
+                        .format(type(orgs), repr(settings_path)))
+    # else the URL is used which lists all repos user can access
+    #   (full name covers directory structure)
 
     logging.info("Processed {} orgs {} users"
                  .format(counts['orgs'], counts['users']))

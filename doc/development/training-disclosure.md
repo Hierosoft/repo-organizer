@@ -85,6 +85,14 @@ else:
     from urllib import quote_plus as urllib_quote_plus  # noqa: F401,E501 # type: ignore
     from urllib import urlencode  # noqa: F401 # type: ignore
 ```
+
+- 2025-01-13
+
+Here is the updated class. Add a condition that adds the appropriate http headers required by the github API for sending a token in the case that self.token is set. The proper header is "Authorization: Bearer" (self.token) and correct URL for authenticated listing of repos is https://api.github.com/search/repositories?q=user:USERNAME where USERNAME is RepoCollection.user (add a new static attribute that defaults to "", and whenever set_name is called with is_org is False, set the static member to name):
+
+- (pasted the imports and RepoCollection class)
+
+
 ## pyproject.toml
 - 2024-12-02
 Make a pyproject.toml assuming this file is called repoorganizer/__init__.py, preferring classifiers the as metadata format.

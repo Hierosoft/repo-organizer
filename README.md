@@ -8,7 +8,8 @@ Maintain a local copy of all repos for specified user(s) and/or organization(s).
   "sources": {
     "github": {
 	  "orgs": ["traincontrolsystems"],
-	  "users": ["TCSDCC"]
+	  "users": ["TCSDCC"],
+	  "token": "github_pat_SOMETHING"
     }
   }
 }
