@@ -1,10 +1,20 @@
 #!/usr/bin/env python
 from __future__ import print_function
 import os
+import shlex
+import subprocess
 import sys
 import json
-import logging2 as logging
 from os.path import expanduser
+
+MODULE_DIR = os.path.dirname(os.path.realpath(__file__))
+REPO_DIR = os.path.dirname(MODULE_DIR)
+REPOS_DIR = os.path.dirname(REPO_DIR)
+if os.path.isfile(os.path.join(REPOS_DIR, "hierosoft", "hierosoft", "__init__.py")):
+    sys.path.insert(0, os.path.join(REPOS_DIR, "hierosoft"))
+import hierosoft.logging2 as logging
+
+logging.basicConfig(level=logging.INFO)
 
 # Conditional imports for Python 2 and 3 compatibility
 if sys.version_info.major >= 3:
@@ -21,27 +31,47 @@ else:
     from HTMLParser import HTMLParser  # noqa: F401
 
 ENABLE_SSH = True
+config_dir = os.path.join(expanduser("~"), ".config", "repo-organizer")
+backup_dir = os.path.join(expanduser("~"), "repo-organizer")
+settings_path = os.path.join(config_dir, "settings.json")
 
 
 class RepoCollection:
     """Handles operations related to GitHub repositories."""
 
+    site = "github"
+
     def __init__(self):
         self.repos = None
         self.name = None
         self.is_org = False
+        self.json_urls = []
 
     def set_name(self, name, is_org):
         """Sets the name and type of the collection."""
         self.name = name
         self.is_org = is_org
 
-    def load_repos(self, refresh=False):
+    @classmethod
+    def cache_dir(cls):
+        return os.path.join(config_dir, "cache", cls.site)
+
+    def backup_dir(self):
+        return os.path.join(backup_dir, self.site)
+
+
+    def _load_repos(self, refresh=False):
         """Loads the repositories for the given GitHub organization or user."""
         repo_cache = os.path.join(
-            expanduser("~"), ".config", "repo-organizer", self.name, "repos.json"
+            RepoCollection.cache_dir(), self.name, "repos.json"
         )
         downloaded = False
+
+        url = "https://api.github.com/{}/{}/repos".format(
+            "orgs" if self.is_org else "users", self.name
+        )
+        if url not in self.json_urls:
+            self.json_urls.append(url)
 
         if not refresh:
             if os.path.exists(repo_cache):
@@ -50,38 +80,62 @@ class RepoCollection:
                 logging.info("Loaded repos from cache: %s", repo_cache)
                 return
 
-            url = "https://api.github.com/{}/{}".format(
-                "orgs" if self.is_org else "users", self.name
-            )
-            logging.warning("No %s, so downloading %s", repo_cache, url)
+            logging.warning("No %s, so downloading from %s" % (repo_cache, url))
 
-        # Download repositories from GitHub
-        url = "https://api.github.com/{}/{}/repos".format(
-            "orgs" if self.is_org else "users", self.name
-        )
         try:
             response = request.urlopen(url)
             self.repos = json.loads(response.read())
             downloaded = True
         except (HTTPError, URLError) as e:
-            logging.error("Failed to fetch repositories: %s", e)
+            logging.error("Failed to fetch repositories: %s" % e)
             return
-
         # Cache the results if downloaded
         if downloaded:
             os.makedirs(os.path.dirname(repo_cache), exist_ok=True)
             with open(repo_cache, "w") as cache_file:
-                json.dump(self.repos, cache_file)
-            logging.info("Cached repos to %s", repo_cache)
+                json.dump(self.repos, cache_file, indent=2)
+            logging.info("Cached repos to %s" % repo_cache)
 
+    def clone_repos(self, refresh=False):
+        if self.repos is None or refresh:
+            self._load_repos(refresh=refresh)
+        for repo in self.repos:
+            # example entries:
+            # "name": "openmrn",
+            # "full_name": "traincontrolsystems/openmrn",
+            # "fork": true,
+            # "git_url": "git://github.com/traincontrolsystems/openmrn.git",
+            # "ssh_url": "git@github.com:traincontrolsystems/openmrn.git",
+            # "clone_url": "https://github.com/traincontrolsystems/openmrn.git",
+            url = repo['ssh_url']  # necessary for using ssh credentials on CLI
+            dst_dir = os.path.join(self.backup_dir(), *repo['full_name'].split("/"))
+            dst_parent = os.path.dirname(dst_dir)
+            popen_kwargs = {}
+            if not os.path.isdir(dst_dir):
+                os.makedirs(dst_dir)
+                cmd_parts = ["git", "clone", url, dst_dir]
+            else:
+                popen_kwargs['cwd'] = dst_dir
+                print("git pull  # in {}".format(repr(dst_dir)))
+                cmd_parts = ["git", "pull"]
+            meta_dst = os.path.join(dst_parent, "{}.json".format(repo['name']))
+            with open(meta_dst, "w") as outs:
+                json.dump(self.repos, outs, indent=2)
+            result = subprocess.Popen(cmd_parts, **popen_kwargs)
+            # stdout=subprocess.PIPE
+            # stderr=subprocess.PIPE
+            text, errors = result.communicate()
+            code = result.returncode
+            if code != 0:
+                logging.error("`{}` failed"  #  in {}
+                              .format(shlex.join(cmd_parts)))  # dst_dir
+                logging.error()
 
 def load_settings():
     """Loads the settings from ~/.config/repo-organizer/settings.json."""
-    config_dir = os.path.join(expanduser("~"), ".config", "repo-organizer")
-    settings_path = os.path.join(config_dir, "settings.json")
 
     if not os.path.exists(settings_path):
-        logging.error("Settings file not found: %s", settings_path)
+        logging.error("Settings file not found: %s" % settings_path)
         sys.exit(1)
 
     with open(settings_path, "r") as settings_file:
@@ -104,12 +158,14 @@ def gather_repos(org_name, is_org):
     """Handles repository operations for the given organization or user."""
     org = RepoCollection()
     org.set_name(org_name, is_org)
-    org.load_repos(refresh=False)
+    logging.info("Collecting {} {} repo(s)"
+                 .format(org_name, "org" if is_org else "user"))
+    org.clone_repos(refresh=False)
+    return org
 
 
 def main():
     """Main entry point for the script."""
-    config_dir = os.path.join(expanduser("~"), ".config", "repo-organizer")
     settings = load_settings()
 
     github = settings["sources"]["github"]
@@ -117,17 +173,51 @@ def main():
     users = github.get("users")
 
     if not orgs and not users:
-        logging.error("No 'orgs' or 'users' specified in settings.")
+        logging.error(
+            'No "orgs" or "users" specified under'
+            ' "sources":{"github"... in settings.')
         return 1
 
-    if isinstance(orgs, list):
+    counts = {'orgs': 0, 'users': 0}
+    all_json_urls = []
+    collections = []
+    if orgs is None:
+        logging.info("orgs is None")
+    elif isinstance(orgs, list):
         for org_name in orgs:
-            gather_repos(org_name, is_org=True)
+            collection = gather_repos(org_name, is_org=True)
+            collections.append(collection)
+            counts['orgs'] += 1
+    else:
+        logging.error("orgs is a {} (expected list). Check {}"
+                      .format(type(orgs), repr(settings_path)))
 
-    if isinstance(users, list):
+    if users is None:
+        logging.info("users is None")
+    elif isinstance(users, list):
         for user_name in users:
-            gather_repos(user_name, is_org=False)
+            collection = gather_repos(user_name, is_org=False)
+            collections.append(collection)
+            counts['users'] += 1
+    else:
+        logging.error("users is a {} (expected list). Check {}"
+                      .format(type(users), repr(settings_path)))
 
+    logging.info("Processed {} orgs {} users"
+                 .format(counts['orgs'], counts['users']))
+    print()
+    msg = (
+        "Warning: Private repos will not be shown unless you manually replace"
+        " cached json files in {} with ones from (The list at this URL will"
+        " still only be complete if your browser is logged in as an owner,"
+        " collaborator, or team member with permission to read desired repos):"
+        .format(repr(RepoCollection.cache_dir()))
+    )
+    # logging.warning(msg)
+    print(msg)
+    for collection in collections:
+        for json_url in collection.json_urls:
+            print("- {}".format(json_url))
     return 0
 
 

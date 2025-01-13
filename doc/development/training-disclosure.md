@@ -18,7 +18,7 @@ Subsections of this disclosure contain prompts used to generate content, in a wa
 tool(s) used:
 - GPT-4-Turbo (Version 4o, chatgpt.com)
 
-Scope of use: code described in subsections--typically modified by hand to improve logic, variable naming, integration, etc., but in this commit, unmodified.
+Scope of use: code described in subsections--typically modified by hand to improve logic, variable naming, integration, etc.
 
 
 ## repoorganizer
