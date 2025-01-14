@@ -266,6 +266,13 @@ def gather_repos(org_name, is_org, token=None, refresh=False, dry_run=False):
 def main():
     """Main entry point for the script."""
     settings = load_settings()
+    refresh = False
+    for arg in sys.argv[1:]:
+        if arg == "--refresh":
+            refresh = True
+        else:
+            logging.error("Unknown argument: {}".format(arg))
+            return 1
 
     github = settings["sources"]["github"]
     orgs = github.get("orgs")
@@ -279,54 +286,69 @@ def main():
 
     sources = settings.get('sources')
     github = None
+    tokens = None
     if sources:
         github = sources.get('github')
     if github:
-        token = github.get('token')
-
-    counts = {'orgs': 0, 'users': 0}
+        tokens = github.get('tokens')
+    else:
+        github = {}
+    if not tokens:
+        tokens = {}
+    counts = {}
     collections = []
-
-    if users is None:
-        logging.info("users is None")
-    elif isinstance(users, list):
-        for user_name in users:
-            collection = gather_repos(user_name, is_org=False, token=token,
-                                      dry_run=False)  # True for debug only!
-            collections.append(collection)
-            counts['users'] += 1
-    else:
-        logging.error("users is a {} (expected list). Check {}"
-                      .format(type(users), repr(settings_path)))
-    # if not token:
-    if orgs is None:
-        logging.info("orgs is None")
-    elif isinstance(orgs, list):
-        for org_name in orgs:
-            collection = gather_repos(org_name, is_org=True, token=token)
-            collections.append(collection)
-            counts['orgs'] += 1
-    else:
-        logging.error("orgs is a {} (expected list). Check {}"
-                    .format(type(orgs), repr(settings_path)))
+    no_token = {}
+    no_token_total = 0
+    for cat_name in ("orgs", "users"):
+        no_token[cat_name] = []
+        counts[cat_name] = 0
+        names = github.get(cat_name)
+        if cat_name == "users": break  # for debug only!
+        if names is None:
+            logging.info("'{}' is None".format(cat_name))
+        elif isinstance(names, list):
+            for name in names:
+                token = tokens.get(name)
+                if not token:
+                    no_token[cat_name].append(name)
+                    no_token_total += 1
+                collection = gather_repos(name, is_org=(cat_name=="orgs"), token=token,
+                                          refresh=refresh,
+                                          dry_run=False)  # True for debug only!
+                collections.append(collection)
+                counts[cat_name] += 1
+        else:
+            logging.error("{} is a {} (expected list). Check {}"
+                          .format(repr(cat_name), type(cat_name).__name__,
+                                  repr(settings_path)))
     # else the URL is used which lists all repos user can access
     #   (full name covers directory structure)
 
     logging.info("Processed {} orgs {} users"
                  .format(counts['orgs'], counts['users']))
     print()
-    token_msg = ""
-    if token:
-        token_msg = " Your token in settings was used."
-    msg = (
-        "Private repos will not be shown unless you use"
-        " a token.{} See {} to see what was listed. The token must"
-        " be for a collaborator or team member with permission"
-        " to list and clone desired repos:"
-        .format(token_msg, repr(RepoCollection.cache_dir()))
-    )
-    # logging.warning(msg)
-    print(msg)
+    if no_token_total:
+        print("Your tokens need to be set and have permissions"
+              " to read repositories, branches, etc.! See readme.")
+        print("The following names have no tokens in the 'tokens' dict in 'github' in {}: "
+              .format(repr(settings_path)))
+        print('{\n'
+              '  "sources": {\n'
+              '    "github":  {\n'
+              '      "tokens": {\n')
+        for cat_name in ("orgs", "users"):
+              for name in no_token[cat_name]:
+                  print('        "{}": "[some {} token]",'
+                        .format(name, cat_name))
+    else:
+        print("INFO: If private repos are still not cloned,"
+              " try the --refresh argument."
+              " Otherwise, ensure tokens have permissions to read repos"
+              " for respective user or organization"
+              " (must have separate token owned by organization)"
+              " and are not expired."
+              " Tokens were used for all list URLs during this run.")
+    print("JSON URLs used:")
     for collection in collections:
         for json_url in collection.json_urls:
             print("- {}".format(json_url))
