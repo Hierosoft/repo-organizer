@@ -2,14 +2,14 @@
 Maintain a local copy of all repos for specified user(s) and/or organization(s).
 
 ## Example configuration:
-~/.config/repo-organizer/settings.json example:
+You must manually create ~/.config/repo-organizer/settings.json like:
 ```json
 {
   "sources": {
     "github": {
-	  "orgs": ["traincontrolsystems"],
-	  "users": ["TCSDCC"],
-	  "token": "github_pat_SOMETHING"
+	  "orgs": ["..."],
+	  "users": ["..."],
+	  "token": "github_pat_**************************************************"
     }
   }
 }

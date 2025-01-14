@@ -36,6 +36,10 @@ backup_dir = os.path.join(expanduser("~"), "repo-organizer")
 settings_path = os.path.join(config_dir, "settings.json")
 
 
+def masked(v):
+    return "*" * len(v)
+
+
 class RepoCollection:
     """Handles operations related to GitHub repositories."""
 
@@ -48,7 +52,7 @@ class RepoCollection:
         self.is_org = False
         self.json_urls = []
         self.token = None
-        self.response_type = list
+        self.expected_res_type = list
         self.full_response = None
 
     def set_name(self, name, is_org, token=None):
@@ -72,11 +76,18 @@ class RepoCollection:
         including authentication if available.
         """
         headers = {"Accept": "application/vnd.github.v3+json"}
+        # or application/vnd.github+json
         if self.token:
             # headers["Authorization"] = "token {}".format(self.token)
             # ^ Doesn't work. See
             #   <https://github.com/orgs/community/discussions/24382>
             headers["Authorization"] = "Bearer {}".format(self.token)
+        print("Using header:")
+        for k, v in headers.items():
+            v_msg = v
+            if k.lower() == "authorization":
+                v_msg = masked(v)
+            print("{}: {}".format(k, v_msg))
         return headers
 
     def _get_url(self):
@@ -89,39 +100,52 @@ class RepoCollection:
             )
             return url
 
-        if self.is_org and not RepoCollection.user:
+        if self.is_org:  # and not RepoCollection.user:
             return "https://api.github.com/orgs/{}/repos".format(self.name)
-        self.response_type = dict
+        self.expected_res_type = dict
         return "https://api.github.com/search/repositories?q=user:{}".format(
             RepoCollection.user
         )
 
+    def get_token_msg(self):
+        token_msg = self.token
+        if token_msg is not None:
+            token_msg = masked(token_msg)
+        return token_msg
+
     def _load_repos(self, refresh=False):
         """Load the repositories for the given GitHub organization or user."""
-        repo_cache = os.path.join(
+        repos_cache_path = os.path.join(
             RepoCollection.cache_dir(), self.name, "repos.json"
         )
         downloaded = False
         url = self._get_url()
         if url not in self.json_urls:
             self.json_urls.append(url)
+        print("Listing repos using {}".format(url))
 
         if not refresh:
-            if os.path.exists(repo_cache):
-                with open(repo_cache, "r") as cache_file:
-                    self.repos = json.load(cache_file)
-                logging.info("Loaded repos from cache: %s", repo_cache)
-                return
+            if os.path.exists(repos_cache_path):
+                with open(repos_cache_path, "r") as stream:
+                    self.repos = json.load(stream)
+                logging.info("Loaded repos from cache: %s", repos_cache_path)
+                if not self.repos:
+                    logging.warning(
+                        "Got {} from {}".format(self.repos, repos_cache_path))
+                    self.repos = None  # fall through to download
+                    os.remove(repos_cache_path)
+                else:
+                    return
 
-            logging.warning("No %s, so downloading from %s" % (repo_cache, url))
+            logging.warning("No %s, so downloading from %s"
+                            % (repos_cache_path, url))
 
         try:
             # response = request.urlopen(url)
             # self.repos = json.loads(response.read())
             request_obj = request.Request(url, headers=self._get_headers())
             response = request.urlopen(request_obj)
-            self.repos = json.loads(response.read())
-            self.full_response = self.repos
+            self.full_response = json.loads(response.read().decode())
             if isinstance(self.full_response, dict):
                 # Example:
                 # {
@@ -129,34 +153,59 @@ class RepoCollection:
                 #   "incomplete_results": false,
                 #   "items": [
                 self.repos = self.full_response.get('items')
-            elif self.response_type is dict:
-                logging.warning("Got {} but expected dict".format(type(self.full_response)))
+                if self.repos is None:
+                    raise ValueError("Expected 'items' field, got only {}"
+                                     .format([x for x in self.full_response]))
+            else:
+                self.repos = self.full_response  # must be a list already
+                if self.expected_res_type is dict:
+                    logging.warning("Got {} but expected dict"
+                                    .format(type(self.full_response)))
             # with request.urlopen(req) as response:
             #     self.repos = json.loads(response.read().decode())
             downloaded = True
-        except (HTTPError, URLError) as e:
-            logging.error("Failed to fetch repositories: %s" % e)
-            return
+        except HTTPError as e:
+            logging.error("Failed to fetch repositories from %s" % url)
+            error_message = e.read().decode('utf-8')
+            print("HTTPError: {} - {}".format(e.code, error_message))
+            logging.error("self.token = {}".format(self.get_token_msg()))
+            raise
+        except URLError as e:
+            logging.error("Failed to fetch repositories from %s" % url)
+            print("URLError: {}".format(e.reason))
+            # logging.error("Failed to fetch repositories: %s" % e)
+            logging.error("self.token = {}".format(self.get_token_msg()))
+            raise
         # Cache the results if downloaded
         if downloaded:
-            os.makedirs(os.path.dirname(repo_cache), exist_ok=True)
-            with open(repo_cache, "w") as cache_file:
-                json.dump(self.repos, cache_file, indent=2)
-            logging.info("Cached repos to %s" % repo_cache)
+            if self.repos:
+                os.makedirs(os.path.dirname(repos_cache_path), exist_ok=True)
+                with open(repos_cache_path, "w") as stream:
+                    json.dump(self.repos, stream, indent=2)
+                logging.info("Cached repos to %s" % repos_cache_path)
+            else:
+                logging.warning("Got {} from {}".format(self.repos, url))
+        if self.repos is None:
+            raise NotImplementedError(
+                "No repos loaded. repo-organizer should have loaded,"
+                " downloaded, or raised a more exception first.")
+        return
 
     def clone_repos(self, refresh=False):
         if self.repos is None or refresh:
             self._load_repos(refresh=refresh)
         for repo in self.repos:
+            print()
             # example entries:
-            # "name": "openmrn",
-            # "full_name": "traincontrolsystems/openmrn",
+            # "name": "{repo_name}",
+            # "full_name": "{self.name}/{repo_name}",
             # "fork": true,
-            # "git_url": "git://github.com/traincontrolsystems/openmrn.git",
-            # "ssh_url": "git@github.com:traincontrolsystems/openmrn.git",
-            # "clone_url": "https://github.com/traincontrolsystems/openmrn.git",
+            # "git_url": "git://github.com/{self.name}/{repo_name}.git",
+            # "ssh_url": "git@github.com:{self.name}/{repo_name}.git",
+            # "clone_url": "https://github.com/{self.name}/{repo_name}.git",
             url = repo['ssh_url']  # necessary for using ssh credentials on CLI
-            dst_dir = os.path.join(self.backup_dir(), *repo['full_name'].split("/"))
+            dst_dir = os.path.join(self.backup_dir(),
+                                   *repo['full_name'].split("/"))
             dst_parent = os.path.dirname(dst_dir)
             popen_kwargs = {}
             if not os.path.isdir(dst_dir):
@@ -168,7 +217,8 @@ class RepoCollection:
                 cmd_parts = ["git", "pull"]
             meta_dst = os.path.join(dst_parent, "{}.json".format(repo['name']))
             with open(meta_dst, "w") as outs:
-                json.dump(self.repos, outs, indent=2)
+                json.dump(repo, outs, indent=2)
+                print("Saved {}".format(repr(meta_dst)))
             result = subprocess.Popen(cmd_parts, **popen_kwargs)
             # stdout=subprocess.PIPE
             # stderr=subprocess.PIPE
@@ -202,13 +252,14 @@ def load_settings():
     return settings
 
 
-def gather_repos(org_name, is_org, token=None):
+def gather_repos(org_name, is_org, token=None, refresh=False, dry_run=False):
     """Handles repository operations for the given organization or user."""
     org = RepoCollection()
     org.set_name(org_name, is_org, token=token)
     logging.info("Collecting {} {} repo(s)"
                  .format(org_name, "org" if is_org else "user"))
-    org.clone_repos(refresh=False)
+    if not dry_run:
+        org.clone_repos(refresh=refresh)
     return org
 
 
@@ -240,23 +291,24 @@ def main():
         logging.info("users is None")
     elif isinstance(users, list):
         for user_name in users:
-            collection = gather_repos(user_name, is_org=False, token=token)
+            collection = gather_repos(user_name, is_org=False, token=token,
+                                      dry_run=False)  # True for debug only!
             collections.append(collection)
             counts['users'] += 1
     else:
         logging.error("users is a {} (expected list). Check {}"
                       .format(type(users), repr(settings_path)))
-    if not token:
-        if orgs is None:
-            logging.info("orgs is None")
-        elif isinstance(orgs, list):
-            for org_name in orgs:
-                collection = gather_repos(org_name, is_org=True, token=token)
-                collections.append(collection)
-                counts['orgs'] += 1
-        else:
-            logging.error("orgs is a {} (expected list). Check {}"
-                        .format(type(orgs), repr(settings_path)))
+    # if not token:
+    if orgs is None:
+        logging.info("orgs is None")
+    elif isinstance(orgs, list):
+        for org_name in orgs:
+            collection = gather_repos(org_name, is_org=True, token=token)
+            collections.append(collection)
+            counts['orgs'] += 1
+    else:
+        logging.error("orgs is a {} (expected list). Check {}"
+                    .format(type(orgs), repr(settings_path)))
     # else the URL is used which lists all repos user can access
     #   (full name covers directory structure)
 
