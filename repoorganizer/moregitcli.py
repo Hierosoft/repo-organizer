@@ -1,5 +1,6 @@
 import shlex
 import subprocess
+import sys
 
 # from typing import List
 
@@ -195,6 +196,40 @@ def switch_branch(repo_path, set_branch):
             print("Warning: {} appears to be a local-only branch."
                   .format(results['name']))
         return results
+
+    except subprocess.CalledProcessError as e:
+        print("CalledProcessError: {}".format(e.stderr.strip()))
+        return None
+
+
+def pull_repo(repo_path):
+    try:
+        cmd_parts = ["git", "-C", repo_path, "pull"]
+        result = subprocess.run(
+            cmd_parts,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("Stderr: {}".format(result.stderr))
+        print(shlex.join(cmd_parts).replace("'", '"'))
+        # ^ Only double quote (") allowed for Command Prompt on Windows
+        #   (Works fine in Terminal a.k.a. PowerShell)
+        lines = [
+            line.strip() for line in result.stdout.splitlines()
+            if line.strip()
+        ]
+        err_lines = [  # Since may contain warning such as:
+            # Already on 'main'
+            # and not raise CalledProcessError
+            line.strip() for line in result.stderr.splitlines()
+            if line.strip()
+        ]
+        for line in lines:
+            print("{}".format(line))
+        for line in err_lines:
+            print("{}".format(line), file=sys.stderr)
+        return True
 
     except subprocess.CalledProcessError as e:
         print("CalledProcessError: {}".format(e.stderr.strip()))

@@ -7,6 +7,7 @@ import sys
 from repoorganizer import (
     load_settings,
     settings_path,  # only use for error messages here. See load_settings.
+    backup_dir,
 )
 
 from repoorganizer.repocollection import (
@@ -77,7 +78,8 @@ def echo_settings_help_token(no_token):
 def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Process command-line arguments for refresh and other options."
+        description=("Process command-line arguments"
+                     " for refresh and other options.")
     )
     parser.add_argument(
         "--refresh",
@@ -92,8 +94,9 @@ def parse_arguments():
     parser.add_argument(
         "--destination",
         type=str,
-        default=settings_path,
-        help=f"Specify the destination. Default is: {settings_path}"
+        default=backup_dir,
+        help=("Specify the destination. Default is: {}"
+              .format(settings_path))
     )
 
     return parser.parse_args()
@@ -161,10 +164,15 @@ def main():
                 if not token:
                     no_token[cat_name].append(name)
                     no_token_total += 1
-                collection = gather_repos(name, is_org=(cat_name == "orgs"),
-                                          token=token,
-                                          refresh=args.refresh,
-                                          dry_run=False)  # True is debug only!
+                collection = gather_repos(
+                    name,
+                    is_org=(cat_name == "orgs"),
+                    token=token,
+                    refresh=args.refresh,
+                    dry_run=False,  # True is debug only!
+                    no_forks=not args.no_forks,
+                    destination=args.destination,
+                )
                 collections.append(collection)
                 counts[cat_name] += 1
         else:

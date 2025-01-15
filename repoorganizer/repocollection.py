@@ -5,6 +5,13 @@ import subprocess
 import sys
 import json
 
+from repoorganizer.moregitcli import (
+    current_branch,
+    list_remote_branches,
+    switch_branch,
+    pull_repo,
+)
+
 
 MODULE_DIR = os.path.dirname(os.path.realpath(__file__))
 REPO_DIR = os.path.dirname(MODULE_DIR)
@@ -56,6 +63,7 @@ class RepoCollection:
         self.token = None
         self.expected_res_type = list
         self.full_response = None
+        self.sites_dir = None
 
     def set_name(self, name, is_org, token=None):
         """Set the name and type of the collection."""
@@ -71,6 +79,8 @@ class RepoCollection:
         return os.path.join(config_dir, "cache", cls.site)
 
     def backup_dir(self):
+        if self.sites_dir:
+            os.path.join(self.sites_dir, self.site)
         return os.path.join(backup_dir, self.site)
 
     def _get_headers(self):
@@ -195,11 +205,27 @@ class RepoCollection:
                 " downloaded, or raised a more exception first.")
         return
 
-    def clone_repos(self, refresh=False):
+    def clone_repos(self, refresh=False, forks=True, destination=None):
+        """Clone all repos in the collection.
+
+        Args:
+            refresh (bool, optional): Download metadata again. Advisable
+                if token was changed or added since last run, or if new
+                repos were added! Defaults to False.
+            forks (bool, optional): Include repos which are forks.
+                Defaults to True.
+            destination (str, optional): Parent for site dir
+                (RepoCollection.site) which will be added under it.
+                Defaults to backup_dir or last used destination
+                (sets self.sites_dir).
+        """
+        if destination:
+            self.sites_dir = backup_dir  # affect result of self.backup_dir
         if self.repos is None or refresh:
             self._load_repos(refresh=refresh)
         for repo in self.repos:
             print()
+            default_branch = repo.get("default_branch")
             # example entries:
             # "name": "{repo_name}",
             # "full_name": "{self.name}/{repo_name}",
@@ -233,9 +259,16 @@ class RepoCollection:
                     "`{}` failed"  # in {}
                     .format(shlex.join(cmd_parts)))  # dst_dir
                 logger.error()
+            previous_branch = current_branch(dst_dir)
+            branches = list_remote_branches(dst_dir)
+            for branch in branches:
+                switch_branch(dst_dir, branch)
+                pull_repo(dst_dir)
+            switch_branch(dst_dir, previous_branch)
 
 
-def gather_repos(org_name, is_org, token=None, refresh=False, dry_run=False):
+def gather_repos(org_name, is_org, token=None, refresh=False, dry_run=False,
+                 forks=False, destination=None):
     """Handles repository operations for the given organization or user."""
     org = RepoCollection()
     org.set_name(org_name, is_org, token=token)
@@ -243,5 +276,5 @@ def gather_repos(org_name, is_org, token=None, refresh=False, dry_run=False):
         "Collecting {} {} repo(s)"
         .format(org_name, "org" if is_org else "user"))
     if not dry_run:
-        org.clone_repos(refresh=refresh)
+        org.clone_repos(refresh=refresh, forks=forks, destination=destination)
     return org
