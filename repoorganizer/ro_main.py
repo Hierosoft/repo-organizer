@@ -170,7 +170,7 @@ def main():
                     token=token,
                     refresh=args.refresh,
                     dry_run=False,  # True is debug only!
-                    no_forks=not args.no_forks,
+                    forks=not args.no_forks,
                     destination=args.destination,
                 )
                 collections.append(collection)
