@@ -99,6 +99,19 @@ Create a python function that takes a folder path of a local git repo and return
 
 It doesn't get the remote branches that weren't fetched yet. Make sure that gets done.
 
+### ro_main.py
+Change this to use argparse. Store true if this is passed. Add another boolean arg --no-forks. Add a string argument --destination.     for arg in sys.argv[1:]:
+        if arg == "--refresh":
+            refresh = True
+        else:
+            logger.error("Unknown argument: {}".format(arg))
+            return 1
+
+The default destination is settings_path from from repoorganizer import (
+    load_settings,
+    settings_path,  # only use for error messages here. See load_settings.
+)
+
 ## pyproject.toml
 - 2024-12-02
 Make a pyproject.toml assuming this file is called repoorganizer/__init__.py, preferring classifiers the as metadata format.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from __future__ import print_function
+import argparse
 import os
 import sys
 
@@ -73,6 +74,31 @@ def echo_settings_help_token(no_token):
                 .format(name, cat_name))
 
 
+def parse_arguments():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Process command-line arguments for refresh and other options."
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Store true when this option is passed."
+    )
+    parser.add_argument(
+        "--no-forks",
+        action="store_true",
+        help="Store true when this option is passed to disable forks."
+    )
+    parser.add_argument(
+        "--destination",
+        type=str,
+        default=settings_path,
+        help=f"Specify the destination. Default is: {settings_path}"
+    )
+
+    return parser.parse_args()
+
+
 def main():
     """Main entry point for the script."""
     if not os.path.exists(settings_path):
@@ -94,13 +120,7 @@ def main():
         logger.error("Missing 'github' key in 'sources'.")
         return 1
 
-    refresh = False
-    for arg in sys.argv[1:]:
-        if arg == "--refresh":
-            refresh = True
-        else:
-            logger.error("Unknown argument: {}".format(arg))
-            return 1
+    args = parse_arguments()
 
     github = settings["sources"]["github"]
     orgs = github.get("orgs")
@@ -143,7 +163,7 @@ def main():
                     no_token_total += 1
                 collection = gather_repos(name, is_org=(cat_name == "orgs"),
                                           token=token,
-                                          refresh=refresh,
+                                          refresh=args.refresh,
                                           dry_run=False)  # True is debug only!
                 collections.append(collection)
                 counts[cat_name] += 1
