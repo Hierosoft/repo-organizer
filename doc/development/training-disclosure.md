@@ -92,6 +92,12 @@ Here is the updated class. Add a condition that adds the appropriate http header
 
 - (pasted the imports and RepoCollection class)
 
+### moregitcli.py
+- 2025-01-15
+
+Create a python function that takes a folder path of a local git repo and returns a list of all remote branches
+
+It doesn't get the remote branches that weren't fetched yet. Make sure that gets done.
 
 ## pyproject.toml
 - 2024-12-02
