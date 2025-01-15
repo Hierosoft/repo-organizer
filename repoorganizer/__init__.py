@@ -10,9 +10,10 @@ from os.path import expanduser
 MODULE_DIR = os.path.dirname(os.path.realpath(__file__))
 REPO_DIR = os.path.dirname(MODULE_DIR)
 REPOS_DIR = os.path.dirname(REPO_DIR)
-if os.path.isfile(os.path.join(REPOS_DIR, "hierosoft", "hierosoft", "__init__.py")):
+if os.path.isfile(os.path.join(REPOS_DIR, "hierosoft", "hierosoft",
+                               "__init__.py")):
     sys.path.insert(0, os.path.join(REPOS_DIR, "hierosoft"))
-import hierosoft.logging2 as logging
+import hierosoft.logging2 as logging  # noqa:E402 #type:ignore
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,12 +24,12 @@ if sys.version_info.major >= 3:
     from urllib.parse import urlparse, parse_qs, quote as urllib_quote
     from urllib.parse import quote_plus as urllib_quote_plus, urlencode
 else:
-    import urllib2 as urllib
+    import urllib2 as urllib  # type:ignore
     request = urllib
-    from urllib2 import HTTPError, URLError
-    from urlparse import urlparse, parse_qs
-    from urllib import quote as urllib_quote, quote_plus as urllib_quote_plus, urlencode
-    from HTMLParser import HTMLParser  # noqa: F401
+    from urllib2 import HTTPError, URLError  # noqa: F401 # type:ignore
+    from urlparse import urlparse, parse_qs  # noqa: F401 # type:ignore
+    from urllib import quote as urllib_quote, quote_plus as urllib_quote_plus, urlencode  # noqa:E501,F401 #type:ignore
+    from HTMLParser import HTMLParser  # noqa: F401 #type:ignore
 
 ENABLE_SSH = True
 config_dir = os.path.join(expanduser("~"), ".config", "repo-organizer")
@@ -225,9 +226,10 @@ class RepoCollection:
             text, errors = result.communicate()
             code = result.returncode
             if code != 0:
-                logging.error("`{}` failed"  #  in {}
+                logging.error("`{}` failed"  # in {}
                               .format(shlex.join(cmd_parts)))  # dst_dir
                 logging.error()
+
 
 def load_settings():
     """Loads the settings from ~/.config/repo-organizer/settings.json."""
@@ -303,7 +305,7 @@ def main():
         no_token[cat_name] = []
         counts[cat_name] = 0
         names = github.get(cat_name)
-        if cat_name == "users": break  # for debug only!
+        # if cat_name == "users": break  # for debug only!
         if names is None:
             logging.info("'{}' is None".format(cat_name))
         elif isinstance(names, list):
@@ -312,9 +314,10 @@ def main():
                 if not token:
                     no_token[cat_name].append(name)
                     no_token_total += 1
-                collection = gather_repos(name, is_org=(cat_name=="orgs"), token=token,
+                collection = gather_repos(name, is_org=(cat_name == "orgs"),
+                                          token=token,
                                           refresh=refresh,
-                                          dry_run=False)  # True for debug only!
+                                          dry_run=False)  # True is debug only!
                 collections.append(collection)
                 counts[cat_name] += 1
         else:
@@ -330,16 +333,17 @@ def main():
     if no_token_total:
         print("Your tokens need to be set and have permissions"
               " to read repositories, branches, etc.! See readme.")
-        print("The following names have no tokens in the 'tokens' dict in 'github' in {}: "
+        print("The following names have no tokens in the 'tokens'"
+              " dict in 'github' in {}: "
               .format(repr(settings_path)))
         print('{\n'
               '  "sources": {\n'
               '    "github":  {\n'
               '      "tokens": {\n')
         for cat_name in ("orgs", "users"):
-              for name in no_token[cat_name]:
-                  print('        "{}": "[some {} token]",'
-                        .format(name, cat_name))
+            for name in no_token[cat_name]:
+                print('        "{}": "[some {} token]",'
+                      .format(name, cat_name))
     else:
         print("INFO: If private repos are still not cloned,"
               " try the --refresh argument."
