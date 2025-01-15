@@ -22,7 +22,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],
-    # python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*",  # only for pyproject.toml
+    # python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*",  # only for pyproject.toml  # noqa: E501
     install_requires=[
         "hierosoft @ git+https://github.com/Hierosoft/hierosoft.git@main",
     ],
@@ -34,7 +34,7 @@ setup(
     # },
     entry_points={
         "console_scripts": [
-            "repo-organizer=repoorganizer.__init__:main",
+            "repo-organizer=repoorganizer.ro_main:main",
         ],
     },
     include_package_data=True,

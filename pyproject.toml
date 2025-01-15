@@ -35,4 +35,4 @@ dev = [
 ]
 
 [project.scripts]
-repoorganizer = "repoorganizer.__init__:main"
+repoorganizer = "repoorganizer.ro_main:main"
