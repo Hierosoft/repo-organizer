@@ -39,3 +39,7 @@ def load_settings():
         settings = json.load(settings_file)
 
     return settings
+
+
+def emit_cast(value):
+    return "{}({})".format(type(value).__name__, repr(value))

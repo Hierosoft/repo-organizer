@@ -2,6 +2,8 @@ import shlex
 import subprocess
 import sys
 
+from repoorganizer import emit_cast
+
 # from typing import List
 
 
@@ -32,6 +34,10 @@ def list_remote_branches(repo_path, name_only=True, trunks=["origin"]):
         List[str]: A list of remote branch names.
             Example where there is no local copy of "test" branch yet:
     """
+    if not repo_path:
+        raise ValueError(
+            "Expected str got {} for repo_path"
+            .format(emit_cast(repo_path)))
     try:
         # Fetch all updates from the remote repository
         subprocess.run(
@@ -85,6 +91,10 @@ def list_remote_branches(repo_path, name_only=True, trunks=["origin"]):
 
 def current_branch(repo_path):
     """Find out which branch is checked out at the given path."""
+    if not repo_path:
+        raise ValueError(
+            "Expected str got {} for repo_path"
+            .format(emit_cast(repo_path)))
     try:
         result = subprocess.run(
             ["git", "-C", repo_path, "branch"],
@@ -119,6 +129,16 @@ def switch_branch(repo_path, set_branch):
             - 'trunk_and_branch': such as "origin/main"
             - 'name': such as "main"
     """
+    if not repo_path:
+        raise ValueError(
+            "Expected str got {} for repo_path"
+            .format(emit_cast(repo_path)))
+    if not set_branch:
+        raise ValueError(
+            "Expected str got {} for set_branch."
+            "Before calling this, make sure repo isn't bare,"
+            " otherwise getting branch(es) will not work."
+            .format(emit_cast(set_branch)))
     try:
         cmd_parts = ["git", "-C", repo_path, "switch", set_branch]
         result = subprocess.run(

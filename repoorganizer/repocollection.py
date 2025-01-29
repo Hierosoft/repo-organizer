@@ -260,6 +260,10 @@ class RepoCollection:
                     .format(shlex.join(cmd_parts)))  # dst_dir
                 logger.error()
             previous_branch = current_branch(dst_dir)
+            if not previous_branch:
+                print("Skipping {} (bare repo assumed--no branch selected)"
+                      .format(repr(dst_dir)))
+                continue
             branches = list_remote_branches(dst_dir)
             for branch in branches:
                 switch_branch(dst_dir, branch)
