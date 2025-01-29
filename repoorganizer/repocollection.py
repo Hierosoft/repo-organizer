@@ -265,10 +265,11 @@ class RepoCollection:
                       .format(repr(dst_dir)))
                 continue
             branches = list_remote_branches(dst_dir)
-            for branch in branches:
-                switch_branch(dst_dir, branch)
-                pull_repo(dst_dir)
-            switch_branch(dst_dir, previous_branch)
+            if branches:
+                for branch in branches:
+                    switch_branch(dst_dir, branch)
+                    pull_repo(dst_dir)
+                switch_branch(dst_dir, previous_branch)
 
 
 def gather_repos(org_name, is_org, token=None, refresh=False, dry_run=False,
